@@ -277,6 +277,11 @@
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // 有的托管平台会在右下角加一个自己的小标牌，窄屏上会盖住按钮，这时把按钮整排抬高一点
+  addEventListener('DOMContentLoaded', () => {
+    if (document.querySelector('script[data-nf-variant]')) document.getElementById('bottom').style.bottom = 'calc(66px + env(safe-area-inset-bottom, 0px))';
+  });
 })();
 </script>
 </body>
