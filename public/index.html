@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>魔性跳舞小猫</title>
+<meta name="description" content="一只停不下来的像素小猫。点它换舞步，开音乐，越跳越魔性。">
+<meta name="theme-color" content="#1b1030">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%231b1030'/%3E%3Crect x='2' y='5' width='12' height='9' fill='%23ffa63d'/%3E%3Crect x='2' y='2' width='4' height='3' fill='%23ffa63d'/%3E%3Crect x='10' y='2' width='4' height='3' fill='%23ffa63d'/%3E%3Crect x='4' y='8' width='2' height='2' fill='%232a1a3a'/%3E%3Crect x='10' y='8' width='2' height='2' fill='%232a1a3a'/%3E%3Crect x='7' y='11' width='2' height='1' fill='%23ff7fa8'/%3E%3C/svg%3E">
+<style>
+  html, body { margin: 0; height: 100%; background: #1b1030; overflow: hidden; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif; color: #fff;
+         -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block;
+           object-fit: contain; image-rendering: pixelated; image-rendering: crisp-edges; cursor: pointer; }
+  .hud { position: fixed; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; }
+  #top { top: max(12px, env(safe-area-inset-top)); flex-direction: column; align-items: center; gap: 6px; }
+  #title { font-size: clamp(22px, 5.2vw, 40px); font-weight: 900; letter-spacing: .12em; margin: 0;
+           color: #ffe14d; text-shadow: 3px 3px 0 #ff4f9a, 6px 6px 0 #2a1a3a; }
+  #info { font-size: clamp(12px, 3vw, 16px); font-weight: 700; background: #2a1a3a; padding: 4px 12px;
+          border: 2px solid #fff; box-shadow: 3px 3px 0 #000; }
+  #bottom { bottom: max(14px, env(safe-area-inset-bottom)); flex-wrap: wrap; gap: 10px; padding: 0 10px; }
+  button { pointer-events: auto; font: inherit; font-weight: 900; font-size: clamp(14px, 3.6vw, 18px);
+           color: #2a1a3a; background: #ffe14d; border: 3px solid #2a1a3a; border-radius: 0;
+           padding: 10px 14px; box-shadow: 4px 4px 0 #2a1a3a; cursor: pointer; }
+  button:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 #2a1a3a; }
+  button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  #bMusic { background: #7dffb2; } #bCrazy { background: #ff7fa8; } #bAdd { background: #7fd4ff; }
+  noscript { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<canvas id="stage" width="200" height="150" aria-label="一只正在跳舞的像素小猫"></canvas>
+<div class="hud" id="top">
+  <h1 id="title">魔性跳舞小猫</h1>
+  <div id="info">正在热身……</div>
+</div>
+<div class="hud" id="bottom">
+  <button id="bMusic" type="button">开音乐</button>
+  <button id="bMove" type="button">换舞步</button>
+  <button id="bCrazy" type="button">更魔性</button>
+  <button id="bAdd" type="button">加一只</button>
+</div>
+<noscript>这只小猫要靠 JavaScript 才能跳舞，请在浏览器里打开它。</noscript>
+<script>
+(() => {
+  'use strict';
+  const cv = document.getElementById('stage');
+  const g = cv.getContext('2d');
+  const info = document.getElementById('info');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── 画布：低分辨率画，再由浏览器整体放大，才有像素味 ──
+  let W = 200, H = 150, floorY = 90, feetY = 122;
+  function resize() {
+    const a = innerWidth / Math.max(1, innerHeight);
+    if (a >= 1) { H = 150; W = Math.min(320, Math.round(150 * a)); }
+    else { W = 120; H = Math.min(280, Math.round(120 / a)); }
+    cv.width = W; cv.height = H;
+    floorY = Math.round(H * 0.56);
+    feetY = Math.round(floorY + (H - floorY) * 0.52);
+    g.imageSmoothingEnabled = false;
+  }
+  addEventListener('resize', resize); resize();
+
+  const R = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+  const hash = (a, b, c) => { let n = (a * 374761393 + b * 668265263 + c * 2147483647) | 0; n = (n ^ (n >>> 13)) * 1274126177 | 0; return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+  const hsl = (h, s, l) => `hsl(${((h % 360) + 360) % 360},${s}%,${l}%)`;
+
+  // ── 节拍 ──
+  const LEVELS = [112, 128, 146, 166, 190];
+  const LEVEL_NAMES = ['热身', '来劲了', '上头', '停不下来', '彻底魔性'];
+  let level = 1, bpm = LEVELS[1], beat = 0, lastT = performance.now();
+
+  // ── 舞步：每个舞步根据“第几拍 b、拍内进度 p”算出一个姿势 ──
+  // 手臂：0 垂下 1 平举 2 举高
+  const MOVES = [
+    { name: '左右摇', pose(b, p) { const s = b % 2 ? 1 : -1; return { dx: s * 2, bodyDx: s, headDx: s * 2, armL: s > 0 ? 2 : 0, armR: s > 0 ? 0 : 2, crouch: p < .5 ? 1 : 0, legL: s > 0 && p >= .5 ? 1 : 0, legR: s < 0 && p >= .5 ? 1 : 0, tail: b % 2 }; } },
+    { name: '举手蹦', pose(b, p) { const air = p < .45; return { dy: air ? -4 : 0, armL: air ? 2 : 1, armR: air ? 2 : 1, legL: air ? 1 : 0, legR: air ? 1 : 0, crouch: air ? 0 : 1, eyes: air ? 'happy' : 'open', mouth: air, tail: air ? 1 : 0 }; } },
+    { name: '扭屁股', pose(b, p) { const h = Math.floor((b + p) * 2) % 2; return { bodyDx: h ? 2 : -2, headDx: h ? -1 : 1, armL: 2, armR: 2, crouch: h, tail: Math.floor((b + p) * 4) % 2, eyes: 'happy' }; } },
+    { name: '滑步', pose(b, p) { const f = b % 2 === 1; const k = Math.round((p - .5) * 8); return { flip: f, dx: f ? -k : k, armL: 2, armR: 1, legL: p < .5 ? 1 : 0, legR: p < .5 ? 0 : 1, crouch: p > .75 ? 1 : 0, tail: p < .5 ? 0 : 1, eyes: 'wink' }; } },
+    { name: '甩头', pose(b, p) { return { headDy: p < .2 ? 3 : p < .45 ? 1 : 0, armL: 1, armR: 1, crouch: p < .2 ? 1 : 0, legL: b % 2 && p < .5 ? 1 : 0, legR: !(b % 2) && p < .5 ? 1 : 0, tail: b % 2, eyes: p < .45 ? 'happy' : 'open', mouth: p < .45 }; } },
+    { name: '波浪手', pose(b, p) { const q = Math.floor((b + p) * 2) % 4; return { armL: [2, 2, 0, 1][q], armR: [0, 2, 2, 1][q], headDx: [-1, 0, 1, 0][q], crouch: q % 2, tail: q % 2, mouth: q === 1, eyes: q === 1 ? 'happy' : 'open' }; } },
+  ];
+  let move = 0, moveSince = 0;
+  function nextMove(now) { move = (move + 1 + Math.floor(Math.random() * (MOVES.length - 1))) % MOVES.length; moveSince = now; }
+
+  // ── 小猫的配色 ──
+  const PALS = [
+    { fur: '#ffa63d', dark: '#e07a1f', belly: '#fff1d6', line: '#2a1a3a', eye: '#2a1a3a', pink: '#ff7fa8' },
+    { fur: '#b9c0d4', dark: '#8a93ad', belly: '#f4f6ff', line: '#23243a', eye: '#23243a', pink: '#ff9bb8' },
+    { fur: '#3b3550', dark: '#2a2540', belly: '#57506e', line: '#120d1f', eye: '#ffe14d', pink: '#ff7fa8' },
+    { fur: '#fff6ea', dark: '#f0c9a0', belly: '#ffffff', line: '#3a2a3a', eye: '#3a6bd6', pink: '#ff8fb0' },
+    { fur: '#c98b5a', dark: '#8f5a32', belly: '#f6e2c8', line: '#2e1a12', eye: '#2e1a12', pink: '#ff7fa8' },
+    { fur: '#8fe3c0', dark: '#55b894', belly: '#eafff6', line: '#16332a', eye: '#16332a', pink: '#ff7fa8' },
+  ];
+
+  // 画一只猫。坐标用“格”，原点在两脚中间的地面，y 向上为负；u 是一格等于几个像素。
+  function drawCat(cx, gy, u, pal, ps, ghost) {
+    const dx = (ps.dx || 0), dy = (ps.dy || 0) + (ps.crouch || 0);
+    const bdx = dx + (ps.bodyDx || 0), hdx = dx + (ps.headDx || 0), hdy = dy + (ps.headDy || 0);
+    const flip = !!ps.flip, parts = [];
+    const P = (x, y, w, h, c, line) => parts.push([flip ? -(x + w) : x, y, w, h, c, line !== false]);
+    // 尾巴
+    if (ps.tail) { P(4 + bdx, -6 + dy, 3, 2, pal.fur); P(6 + bdx, -7 + dy, 2, 2, pal.fur); P(8 + bdx, -8 + dy, 2, 2, pal.dark); }
+    else { P(4 + bdx, -6 + dy, 3, 2, pal.fur); P(6 + bdx, -8 + dy, 2, 3, pal.fur); P(7 + bdx, -11 + dy, 2, 3, pal.dark); }
+    // 腿：抬起来的那条短一截
+    const legH = (lift) => 3 - (ps.crouch || 0) + (dy < 0 ? 0 : 0) - (lift ? 1 : 0);
+    const lh = Math.max(1, legH(ps.legL)), rh = Math.max(1, legH(ps.legR));
+    P(-4 + bdx, -3 + dy, 3, lh, pal.fur); P(1 + bdx, -3 + dy, 3, rh, pal.fur);
+    // 身体和肚皮
+    P(-4 + bdx, -10 + dy, 8, 7, pal.fur);
+    P(-2 + bdx, -8 + dy, 4, 4, pal.belly, false);
+    // 手臂
+    const arm = (side, mode) => {
+      const s = side, sx = (x, w) => s < 0 ? -(x + w) : x; // 以右手为准写坐标，左手镜像
+      if (mode === 2) { P(sx(4, 4) + bdx, -10 + dy, 4, 2, pal.fur); P(sx(7, 2) + bdx, -16 + dy, 2, 7, pal.fur); P(sx(7, 2) + bdx, -17 + dy, 2, 2, pal.belly); }
+      else if (mode === 1) { P(sx(4, 5) + bdx, -10 + dy, 5, 2, pal.fur); P(sx(9, 2) + bdx, -10 + dy, 2, 2, pal.belly); }
+      else { P(sx(4, 2) + bdx, -10 + dy, 2, 5, pal.fur); P(sx(4, 2) + bdx, -5 + dy, 2, 1, pal.belly); }
+    };
+    arm(-1, ps.armL || 0); arm(1, ps.armR || 0);
+    // 耳朵和头
+    P(-7 + hdx, -23 + hdy, 4, 3, pal.fur); P(3 + hdx, -23 + hdy, 4, 3, pal.fur);
+    P(-6 + hdx, -24 + hdy, 2, 1, pal.fur); P(4 + hdx, -24 + hdy, 2, 1, pal.fur);
+    P(-7 + hdx, -21 + hdy, 14, 11, pal.fur);
+    P(-6 + hdx, -22 + hdy, 2, 2, pal.pink, false); P(4 + hdx, -22 + hdy, 2, 2, pal.pink, false);
+    // 花纹
+    P(-1 + hdx, -21 + hdy, 2, 2, pal.dark, false); P(-4 + hdx, -21 + hdy, 1, 1, pal.dark, false); P(3 + hdx, -21 + hdy, 1, 1, pal.dark, false);
+    // 眼睛
+    const eye = (x, kind) => {
+      if (kind === 'happy') { P(x + hdx, -16 + hdy, 1, 1, pal.eye, false); P(x + 1 + hdx, -17 + hdy, 1, 1, pal.eye, false); P(x + 2 + hdx, -16 + hdy, 1, 1, pal.eye, false); }
+      else { P(x + hdx, -18 + hdy, 2, 3, pal.eye, false); P(x + hdx, -18 + hdy, 1, 1, '#fff', false); }
+    };
+    const ek = ps.eyes || 'open';
+    eye(-5, ek === 'wink' ? 'open' : ek); eye(2, ek === 'wink' ? 'happy' : ek);
+    // 腮红、鼻子、嘴、胡须
+    P(-6 + hdx, -14 + hdy, 2, 1, pal.pink, false); P(4 + hdx, -14 + hdy, 2, 1, pal.pink, false);
+    P(-1 + hdx, -15 + hdy, 2, 1, pal.pink, false);
+    if (ps.mouth) { P(-1 + hdx, -13 + hdy, 2, 2, pal.line, false); P(-1 + hdx, -12 + hdy, 2, 1, pal.pink, false); }
+    else { P(-2 + hdx, -13 + hdy, 1, 1, pal.line, false); P(1 + hdx, -13 + hdy, 1, 1, pal.line, false); P(-1 + hdx, -12 + hdy, 2, 1, pal.line, false); }
+    P(-10 + hdx, -16 + hdy, 2, 1, pal.belly, false); P(-10 + hdx, -13 + hdy, 2, 1, pal.belly, false);
+    P(8 + hdx, -16 + hdy, 2, 1, pal.belly, false); P(8 + hdx, -13 + hdy, 2, 1, pal.belly, false);
+
+    if (ghost) { for (const q of parts) if (q[5]) R(cx + q[0] * u, gy + q[1] * u, q[2] * u, q[3] * u, ghost); return; }
+    // 影子：跳起来时变小
+    const sw = (dy < 0 ? 8 : 14) * u;
+    R(cx + dx * u - sw / 2, gy, sw, Math.max(1, u), 'rgba(10,4,24,.55)');
+    for (const q of parts) if (q[5]) R(cx + q[0] * u - 1, gy + q[1] * u - 1, q[2] * u + 2, q[3] * u + 2, pal.line); // 先描边
+    for (const q of parts) R(cx + q[0] * u, gy + q[1] * u, q[2] * u, q[3] * u, q[4]);                               // 再上色
+  }
+
+  // ── 伴舞 ──
+  const SLOTS = [[.2, -10], [.8, -10], [.08, -2], [.92, -2], [.33, -15], [.67, -15], [.5, -19], [.14, -17], [.86, -17], [.26, 4], [.74, 4]];
+  const crew = [];
+  function addCat() {
+    if (crew.length >= SLOTS.length) { flash('舞池站满了'); return; }
+    const i = crew.length;
+    crew.push({ slot: i, pal: PALS[1 + (i % (PALS.length - 1))], delay: (i % 4) * .25, born: performance.now() });
+    burst(SLOTS[i][0] * W, feetY + SLOTS[i][1] - 20, 8);
+  }
+
+  // ── 飘起来的小东西 ──
+  const bits = [];
+  const NOTE = ['..##', '..#.', '..#.', '###.', '###.'], HEART = ['#.#', '###', '###', '.#.'], STAR = ['.#.', '###', '.#.'];
+  function burst(x, y, n) { for (let i = 0; i < n; i++) bits.push({ x, y, vx: (Math.random() - .5) * 40, vy: -20 - Math.random() * 35, life: 1, hue: Math.random() * 360, k: [NOTE, HEART, STAR][i % 3] }); }
+  function drawBits(dt) {
+    for (let i = bits.length - 1; i >= 0; i--) {
+      const b = bits[i]; b.life -= dt * .8; if (b.life <= 0) { bits.splice(i, 1); continue; }
+      b.x += b.vx * dt; b.y += b.vy * dt; b.vy += 12 * dt;
+      if (b.life < .3 && Math.floor(b.life * 40) % 2) continue; // 快消失时闪两下
+      const c = hsl(b.hue, 95, 70);
+      b.k.forEach((row, ry) => { for (let rx = 0; rx < row.length; rx++) if (row[rx] === '#') R(b.x + rx, b.y + ry, 1, 1, c); });
+    }
+  }
+
+  // ── 舞厅 ──
+  function drawRoom(b, p, hue) {
+    for (let i = 0; i < 6; i++) R(0, Math.floor(floorY / 6 * i), W, Math.ceil(floorY / 6) + 1, hsl(hue + 250 + i * 4, 45, 9 + i * 2.2));
+    // 墙上的星星
+    for (let i = 0; i < 26; i++) { const x = Math.floor(hash(i, 1, 7) * W), y = Math.floor(hash(i, 2, 7) * (floorY - 26)); if ((b + i) % 3) R(x, y, 1, 1, i % 4 ? '#6b5a9a' : '#fff'); }
+    // 迪斯科球和它打出来的光点
+    const bx = Math.floor(W / 2), by = Math.round(H * .27), r = 8;
+    R(bx, 0, 1, by - r, '#8d84b5');
+    for (let y = -r; y <= r; y++) { const hw = Math.round(Math.sqrt(r * r - y * y)); for (let x = -hw; x < hw; x += 2) { const v = hash(x >> 1, y >> 1, b * 2 + (p < .5 ? 0 : 1)); R(bx + x, by + y, 2, 1, v > .82 ? '#fff' : hsl(hue + 200 + v * 80, 30, 38 + v * 34)); } }
+    for (let i = 0; i < 9; i++) { const a = (b + p) * .6 + i * .7, x = bx + Math.cos(a) * (W * .46) * (.45 + (i % 3) * .28), y = by - 6 + (Math.sin(a * 1.3 + i) * .5 + .5) * (floorY - by - 8); const c = hsl(hue + i * 40, 95, 68); R(x, y - 1, 1, 3, c); R(x - 1, y, 3, 1, c); }
+    // 音柱
+    const n = Math.floor(W / 8), env = 1 - p * .75;
+    for (let i = 0; i < n; i++) { const h = Math.round((4 + hash(i, b, 3) * 22) * env + 2); for (let y = 0; y < h; y += 3) R(i * 8 + (W - n * 8) / 2 + 1, floorY - 2 - y, 6, 2, hsl(hue + i * 14 + y * 3, 85, 42 + y)); }
+    // 会亮的地板
+    const tw = 12, th = 8;
+    for (let j = 0; j * th < H - floorY; j++) for (let i = -1; i * tw < W + tw; i++) {
+      const x = i * tw + (j % 2 ? 6 : 0), y = floorY + j * th, lit = hash(i, j, b) > .55, l = lit ? 30 + j * 4 : 11 + j * 1.5;
+      R(x, y, tw - 1, th - 1, hsl(hue + hash(i, j, b >> 1) * 300, lit ? 80 : 40, l));
+    }
+    R(0, floorY - 1, W, 1, '#0d0718');
+  }
+
+  // ── 音乐：用浏览器自带的发声器现场合成，一个音频文件都没有 ──
+  let ac = null, master = null, noise = null, timer = null, musicOn = false;
+  let step = 0, nextAt = 0, stepLog = [], base = null;
+  const BASS = [36, 33, 29, 31], BASS_AT = { 0: 0, 3: 0, 6: 12, 8: 0, 11: 0, 14: 12 };
+  const _ = null;
+  const LEAD = [
+    [0, _, 4, _, 7, _, 4, 7, 9, _, 7, _, 4, _, 2, _],
+    [0, _, 0, 4, _, 4, 7, _, 9, 7, 4, _, 2, _, 0, _],
+    [9, _, 7, _, 4, _, 7, 9, 12, _, 9, _, 7, _, 4, _],
+    [4, _, 7, _, 9, _, 12, _, 9, _, 7, 9, _, 12, 14, _],
+  ];
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  function tone(t, m, dur, vol, type) { const o = ac.createOscillator(), v = ac.createGain(); o.type = type; o.frequency.setValueAtTime(hz(m), t); v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(v).connect(master); o.start(t); o.stop(t + dur + .02); }
+  function kick(t) { const o = ac.createOscillator(), v = ac.createGain(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(40, t + .12); v.gain.setValueAtTime(.9, t); v.gain.exponentialRampToValueAtTime(.001, t + .16); o.connect(v).connect(master); o.start(t); o.stop(t + .18); }
+  function hiss(t, dur, vol, hp) { const s = ac.createBufferSource(), f = ac.createBiquadFilter(), v = ac.createGain(); s.buffer = noise; f.type = 'highpass'; f.frequency.value = hp; v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(.001, t + dur); s.connect(f).connect(v).connect(master); s.start(t); s.stop(t + dur + .02); }
+  function playStep(n, t) {
+    const s = ((n % 16) + 16) % 16, bar = (((n - s) / 16) % 4 + 4) % 4, d = 60 / bpm / 4;
+    if (s % 4 === 0) kick(t);
+    if (s % 8 === 4) hiss(t, .12, .35, 1500);
+    if (s % 4 === 2) hiss(t, .04, .16, 7000);
+    if (s in BASS_AT) tone(t, BASS[bar] + BASS_AT[s], d * 1.8, .32, 'triangle');
+    const l = LEAD[bar][s]; if (l !== null) tone(t, 72 + l, d * 1.6, .11, 'square');
+  }
+  function pump() { const d = 60 / bpm / 4; while (nextAt < ac.currentTime + .12) { playStep(step, nextAt); stepLog.push([step, nextAt]); step++; nextAt += d; } }
+  function setMusic(on) {
+    if (on) {
+      try {
+        if (!ac) {
+          const AC = window.AudioContext || window.webkitAudioContext; ac = new AC();
+          master = ac.createGain(); master.gain.value = .3; master.connect(ac.destination);
+          noise = ac.createBuffer(1, ac.sampleRate * .3, ac.sampleRate); const ch = noise.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+        }
+        ac.resume(); step = Math.ceil(beat * 4); nextAt = ac.currentTime + .06; stepLog = []; base = null;
+        timer = setInterval(pump, 25); pump(); musicOn = true;
+      } catch (e) { musicOn = false; flash('这个浏览器放不了音乐'); }
+    } else { clearInterval(timer); timer = null; base = null; stepLog = []; if (ac) ac.suspend(); musicOn = false; }
+    bMusic.textContent = musicOn ? '关音乐' : '开音乐';
+  }
+
+  // ── 按钮和点按 ──
+  const bMusic = document.getElementById('bMusic');
+  let flashText = '', flashUntil = 0;
+  function flash(t) { flashText = t; flashUntil = performance.now() + 1600; }
+  bMusic.onclick = () => setMusic(!musicOn);
+  document.getElementById('bMove').onclick = () => { nextMove(performance.now()); burst(W / 2, feetY - 60, 6); };
+  document.getElementById('bCrazy').onclick = () => { level = (level + 1) % LEVELS.length; bpm = LEVELS[level]; flash(LEVEL_NAMES[level] + '！'); burst(W / 2, feetY - 60, 10 + level * 4); };
+  document.getElementById('bAdd').onclick = addCat;
+  cv.addEventListener('pointerdown', (e) => { const r = cv.getBoundingClientRect(), k = Math.min(r.width / W, r.height / H); nextMove(performance.now()); burst((e.clientX - r.left - (r.width - W * k) / 2) / k, (e.clientY - r.top - (r.height - H * k) / 2) / k, 9); });
+  addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'BUTTON') { e.preventDefault(); nextMove(performance.now()); } });
+
+  // ── 每一帧 ──
+  let lastBeat = -1; const trail = [];
+  function frame(now) {
+    const dt = Math.min(.1, (now - lastT) / 1000); lastT = now;
+    if (musicOn && ac) { // 开着音乐时，画面跟着声音的时钟走，才不会对不上拍子
+      while (stepLog.length && stepLog[0][1] <= ac.currentTime) base = stepLog.shift();
+      if (base) beat = (base[0] + (ac.currentTime - base[1]) / (60 / bpm / 4)) / 4; else beat += dt * bpm / 60;
+    } else beat += dt * bpm / 60;
+    const b = Math.floor(beat), p = beat - b;
+    if (b !== lastBeat) { lastBeat = b; if (b % 2 === 0) bits.push({ x: W / 2 + (Math.random() - .5) * 50, y: feetY - 70, vx: (Math.random() - .5) * 16, vy: -22, life: 1, hue: Math.random() * 360, k: NOTE }); if (now - moveSince > 60000 / bpm * 8) nextMove(now); }
+
+    const hue = calm ? 0 : (level >= 2 ? beat * 12 * (level - 1) : 0);
+    const shake = !calm && level >= 3 && p < .12 ? (b % 2 ? 1 : -1) * (level - 2) : 0;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H); g.translate(shake, 0);
+    drawRoom(b, p, hue);
+
+    const cats = crew.map((c) => ({ x: SLOTS[c.slot][0] * W, y: feetY + SLOTS[c.slot][1], u: 2, pal: c.pal, ps: MOVES[move].pose(Math.floor(beat - c.delay + 64), beat - c.delay + 64 - Math.floor(beat - c.delay + 64)), pop: Math.min(1, (now - c.born) / 250) }));
+    cats.sort((a, c) => a.y - c.y);
+    for (const c of cats) { if (c.pop < 1) c.ps.dy = (c.ps.dy || 0) - Math.round((1 - c.pop) * 6); drawCat(Math.round(c.x), c.y, c.u, c.pal, c.ps); }
+
+    const ps = MOVES[move].pose(b, p), u = W < H ? 4 : 3, cx = Math.round(W / 2);
+    if (!calm && level >= 3) { // 残影
+      trail.push(ps); if (trail.length > 10) trail.shift();
+      if (trail.length > 8) { drawCat(cx - (level - 1) * 3, feetY, u, PALS[0], trail[2], hsl(hue + 180, 95, 62)); drawCat(cx + (level - 1) * 3, feetY, u, PALS[0], trail[5], hsl(hue + 300, 95, 62)); }
+    } else trail.length = 0;
+    drawCat(cx, feetY, u, PALS[0], ps);
+    drawBits(dt);
+
+    info.textContent = now < flashUntil ? flashText : `${MOVES[move].name} · ${LEVEL_NAMES[level]} · 已经跳了 ${b} 拍${crew.length ? ` · 伴舞 ${crew.length} 只` : ''}`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
